@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fruit Merge</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #1b0a2e;
+    --container: #2d1450;
+    --wall: #5a2d82;
+    --gold: #ffd700;
+    --text: #f0e0ff;
+    --text-dim: #8a6aaa;
+    --danger: #ff4060;
+    --glow: rgba(255, 215, 0, 0.3);
+  }
+  html, body {
+    height: 100%; overflow: hidden;
+    background: var(--bg);
+    font-family: 'Fredoka', sans-serif;
+    color: var(--text);
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    touch-action: none;
+  }
+  body { display: flex; flex-direction: column; align-items: center; }
+
+  /* ── HUD ────────────────────────────── */
+  .hud {
+    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; max-width: 400px; padding: 8px 16px;
+    font-weight: 700; font-size: 0.9em;
+  }
+  .hud-score { color: var(--gold); font-size: 1.3em; }
+  .hud-level { color: var(--text-dim); }
+  .hud-next { display: flex; align-items: center; gap: 6px; font-size: 0.85em; color: var(--text-dim); }
+  .hud-next-fruit { font-size: 1.4em; }
+
+  /* ── Game area ──────────────────────── */
+  .game-wrapper {
+    position: relative;
+    width: 100%; max-width: 400px;
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  #game-canvas {
+    display: block;
+    border-radius: 0 0 12px 12px;
+    background: var(--container);
+  }
+
+  /* ── Drop guide ─────────────────────── */
+  .drop-line {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 60px;
+    border-bottom: 2px dashed rgba(255,255,255,0.15);
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* ── Screens ────────────────────────── */
+  .overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(10, 5, 20, 0.85);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; z-index: 100;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    font-size: 2.4em; color: var(--gold);
+    text-shadow: 0 0 20px var(--glow);
+  }
+  .overlay h2 { font-size: 1.6em; color: var(--text); }
+  .overlay p { color: var(--text-dim); font-size: 1em; text-align: center; padding: 0 20px; }
+  .overlay .score-big {
+    font-size: 2em; color: var(--gold); font-weight: 700;
+  }
+
+  .btn {
+    font-family: 'Fredoka', sans-serif; font-weight: 700; font-size: 1.1em;
+    border: none; border-radius: 14px; padding: 14px 36px; cursor: pointer;
+    transition: transform 0.12s;
+  }
+  .btn:active { transform: scale(0.95); }
+  .btn-gold {
+    background: linear-gradient(135deg, var(--gold), #ffaa00);
+    color: #1b0a2e;
+    box-shadow: 0 4px 16px rgba(255, 215, 0, 0.3);
+  }
+  .btn-danger {
+    background: var(--danger); color: #fff;
+  }
+
+  /* ── Level up banner ────────────────── */
+  .level-banner {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 2em; font-weight: 700; color: var(--gold);
+    text-shadow: 0 0 30px var(--glow);
+    z-index: 90; pointer-events: none;
+    animation: levelPop 1.5s ease-out forwards;
+  }
+  @keyframes levelPop {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+    20% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+    60% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -60%) scale(1); }
+  }
+
+  /* ── Explosion particles ────────────── */
+  .particle {
+    position: fixed; border-radius: 50%; pointer-events: none; z-index: 80;
+    animation: particleFly 0.8s ease-out forwards;
+  }
+  @keyframes particleFly {
+    0% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0) translateY(-100px); }
+  }
+
+  /* ── Fruit guide ────────────────────── */
+  .fruit-guide {
+    display: flex; gap: 2px; justify-content: center; flex-wrap: wrap;
+    padding: 4px 10px; font-size: 0.75em; color: var(--text-dim);
+    max-width: 400px;
+  }
+  .fruit-guide span { opacity: 0.6; }
+  .fruit-guide .arrow { margin: 0 1px; }
+</style>
+</head>
+<body>
+
+<div class="hud">
+  <div>
+    <div class="hud-score" id="score">0</div>
+    <div class="hud-level" id="level">Level 1</div>
+  </div>
+  <div>
+    <div class="hud-next">
+      Drop: <span class="hud-next-fruit" id="next-fruit"></span>
+    </div>
+    <div class="hud-level" id="goal-text">Goal: 500</div>
+  </div>
+</div>
+
+<div class="fruit-guide" id="fruit-guide"></div>
+
+<div class="game-wrapper" id="game-wrapper">
+  <div class="drop-line"></div>
+  <canvas id="game-canvas"></canvas>
+</div>
+
+<!-- START SCREEN -->
+<div class="overlay" id="screen-start">
+  <h1>🍉 Fruit Merge</h1>
+  <p>Drop fruits to merge them!<br>Two same fruits combine into a bigger one.<br>Make a watermelon and watch it explode! 💥</p>
+  <button class="btn btn-gold" onclick="startGame()">Play!</button>
+</div>
+
+<!-- LEVEL UP SCREEN -->
+<div class="overlay hidden" id="screen-levelup">
+  <h1>⭐ Level Up!</h1>
+  <h2 id="levelup-text">Level 2</h2>
+  <div class="score-big" id="levelup-score">1000</div>
+  <p id="levelup-msg">Things are getting trickier...</p>
+  <button class="btn btn-gold" onclick="nextLevel()">Continue</button>
+</div>
+
+<!-- GAME OVER -->
+<div class="overlay hidden" id="screen-gameover">
+  <h1>💔 Game Over</h1>
+  <div class="score-big" id="gameover-score">0</div>
+  <p id="gameover-level">Reached Level 3</p>
+  <button class="btn btn-gold" onclick="restartGame()">Try Again</button>
+</div>
+
+<script>
+// ── Matter.js setup ───────────────────────
+var Engine = Matter.Engine,
+    Render = Matter.Render,
+    Runner = Matter.Runner,
+    Bodies = Matter.Bodies,
+    Body = Matter.Body,
+    Composite = Matter.Composite,
+    Events = Matter.Events,
+    Vector = Matter.Vector;
+
+// ── Fruit definitions ─────────────────────
+// Each fruit: emoji, radius, points, color
+var FRUITS = [
+  { emoji: '🍒', name: 'Cherry',      radius: 14, points: 1,   color: '#e74c3c' },
+  { emoji: '🍓', name: 'Strawberry',   radius: 18, points: 3,   color: '#ff6b81' },
+  { emoji: '🍇', name: 'Grape',        radius: 22, points: 6,   color: '#8e44ad' },
+  { emoji: '🍊', name: 'Orange',       radius: 26, points: 10,  color: '#f39c12' },
+  { emoji: '🍑', name: 'Peach',        radius: 30, points: 15,  color: '#fdcb6e' },
+  { emoji: '🍎', name: 'Apple',        radius: 34, points: 21,  color: '#e74c3c' },
+  { emoji: '🍐', name: 'Pear',         radius: 38, points: 28,  color: '#a8e06c' },
+  { emoji: '🍋', name: 'Lemon',        radius: 42, points: 36,  color: '#f9e74a' },
+  { emoji: '🍍', name: 'Pineapple',    radius: 48, points: 45,  color: '#f0b429' },
+  { emoji: '🍈', name: 'Melon',        radius: 54, points: 55,  color: '#7bed9f' },
+  { emoji: '🍉', name: 'Watermelon',   radius: 62, points: 100, color: '#2ed573' }
+];
+
+// ── Game state ────────────────────────────
+var engine, render, runner;
+var score = 0;
+var level = 1;
+var currentFruitIndex = 0;
+var nextFruitIndex = 0;
+var canDrop = true;
+var dropX = 0;
+var gameOver = false;
+var gameStarted = false;
+var mergeProcessing = {};
+var containerWidth, containerHeight;
+var checkGameOverTimeout = null;
+
+// Level thresholds
+function getLevelGoal(lvl) {
+  return Math.floor(300 * Math.pow(1.6, lvl - 1));
+}
+
+// Max fruit index that can be dropped (increases slightly with level)
+function getMaxDropIndex(lvl) {
+  return Math.min(3 + Math.floor(lvl / 3), 5);
+}
+
+// ── Audio ─────────────────────────────────
+var audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function playMergeSound(fruitIndex) {
+  try {
+    var ctx = getCtx();
+    var freq = 300 + fruitIndex * 80;
+    var o = ctx.createOscillator();
+    var g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(freq, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(freq * 1.5, ctx.currentTime + 0.1);
+    g.gain.setValueAtTime(0.15, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.25);
+    // Sparkle
+    var o2 = ctx.createOscillator();
+    var g2 = ctx.createGain();
+    o2.type = 'triangle';
+    o2.frequency.setValueAtTime(freq * 2, ctx.currentTime + 0.05);
+    g2.gain.setValueAtTime(0.08, ctx.currentTime + 0.05);
+    g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    o2.connect(g2); g2.connect(ctx.destination);
+    o2.start(ctx.currentTime + 0.05); o2.stop(ctx.currentTime + 0.2);
+  } catch(e) {}
+}
+
+function playDropSound() {
+  try {
+    var ctx = getCtx();
+    var bufSize = ctx.sampleRate * 0.05;
+    var buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 3);
+    var n = ctx.createBufferSource(); n.buffer = buf;
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0.12, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+    var f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1000; f.Q.value = 1;
+    n.connect(f); f.connect(g); g.connect(ctx.destination);
+    n.start(ctx.currentTime); n.stop(ctx.currentTime + 0.07);
+  } catch(e) {}
+}
+
+function playExplosionSound() {
+  try {
+    var ctx = getCtx();
+    // Big boom
+    var o = ctx.createOscillator();
+    var g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(100, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 0.5);
+    g.gain.setValueAtTime(0.25, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.7);
+    // Crackle
+    var bufSize = ctx.sampleRate * 0.4;
+    var buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 2) * 0.5;
+    var n = ctx.createBufferSource(); n.buffer = buf;
+    var ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.2, ctx.currentTime);
+    ng.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    n.connect(ng); ng.connect(ctx.destination);
+    n.start(ctx.currentTime); n.stop(ctx.currentTime + 0.5);
+    // Rising sparkle
+    [0.1, 0.2, 0.3].forEach(function(t) {
+      var s = ctx.createOscillator();
+      var sg = ctx.createGain();
+      s.type = 'sine';
+      s.frequency.setValueAtTime(800 + Math.random() * 1000, ctx.currentTime + t);
+      sg.gain.setValueAtTime(0.1, ctx.currentTime + t);
+      sg.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.15);
+      s.connect(sg); sg.connect(ctx.destination);
+      s.start(ctx.currentTime + t); s.stop(ctx.currentTime + t + 0.2);
+    });
+  } catch(e) {}
+}
+
+function playLevelUpSound() {
+  try {
+    var ctx = getCtx();
+    [523, 659, 784, 1047].forEach(function(f, i) {
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f, ctx.currentTime + i * 0.12);
+      g.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.12);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.12 + 0.25);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime + i * 0.12); o.stop(ctx.currentTime + i * 0.12 + 0.3);
+    });
+  } catch(e) {}
+}
+
+function playGameOverSound() {
+  try {
+    var ctx = getCtx();
+    [400, 350, 300, 200].forEach(function(f, i) {
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, ctx.currentTime + i * 0.2);
+      g.gain.setValueAtTime(0.08, ctx.currentTime + i * 0.2);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.2 + 0.25);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime + i * 0.2); o.stop(ctx.currentTime + i * 0.2 + 0.3);
+    });
+  } catch(e) {}
+}
+
+// ── Explosion particles ───────────────────
+function spawnExplosion(x, y) {
+  var colors = ['#ff6b6b','#ffd93d','#6bff6b','#6bb5ff','#ff6bff','#ff9f43','#ee5a24'];
+  for (var i = 0; i < 30; i++) {
+    var p = document.createElement('div');
+    p.className = 'particle';
+    var size = 6 + Math.random() * 14;
+    var angle = Math.random() * Math.PI * 2;
+    var dist = 50 + Math.random() * 120;
+    var dx = Math.cos(angle) * dist;
+    var dy = Math.sin(angle) * dist - 60;
+    p.style.width = size + 'px';
+    p.style.height = size + 'px';
+    p.style.left = x + 'px';
+    p.style.top = y + 'px';
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    p.style.animation = 'none';
+    document.body.appendChild(p);
+    // Animate manually
+    var startTime = performance.now();
+    (function(el, sx, sy, ddx, ddy, dur) {
+      function anim(now) {
+        var t = (now - startTime) / dur;
+        if (t >= 1) { el.remove(); return; }
+        el.style.left = (sx + ddx * t) + 'px';
+        el.style.top = (sy + ddy * t - 50 * t) + 'px';
+        el.style.opacity = 1 - t;
+        el.style.transform = 'scale(' + (1 - t * 0.5) + ')';
+        requestAnimationFrame(anim);
+      }
+      requestAnimationFrame(anim);
+    })(p, x, y, dx, dy, 600 + Math.random() * 400);
+  }
+}
+
+// ── Initialize game ───────────────────────
+function initGame() {
+  var wrapper = document.getElementById('game-wrapper');
+  var canvas = document.getElementById('game-canvas');
+
+  containerWidth = Math.min(400, window.innerWidth);
+  // Calculate available height
+  var hudHeight = document.querySelector('.hud').offsetHeight;
+  var guideHeight = document.getElementById('fruit-guide').offsetHeight;
+  containerHeight = window.innerHeight - hudHeight - guideHeight - 10;
+
+  canvas.width = containerWidth;
+  canvas.height = containerHeight;
+  canvas.style.width = containerWidth + 'px';
+  canvas.style.height = containerHeight + 'px';
+
+  // Engine
+  engine = Engine.create();
+  engine.gravity.y = 1.5;
+
+  // Renderer
+  render = Render.create({
+    canvas: canvas,
+    engine: engine,
+    options: {
+      width: containerWidth,
+      height: containerHeight,
+      wireframes: false,
+      background: 'transparent',
+      pixelRatio: 1
+    }
+  });
+
+  // Walls — floor raised up so fruits are fully visible
+  var wallThickness = 20;
+  var wallColor = '#5a2d82';
+  var floorColor = '#3d1a6e';
+  var floorOffset = 50; // raise floor this many px from bottom
+
+  Composite.add(engine.world, [
+    // Floor (raised up)
+    Bodies.rectangle(containerWidth / 2, containerHeight - floorOffset + wallThickness / 2, containerWidth, wallThickness, {
+      isStatic: true, render: { fillStyle: floorColor }, label: 'wall'
+    }),
+    // Left wall
+    Bodies.rectangle(-wallThickness / 2, containerHeight / 2, wallThickness, containerHeight * 2, {
+      isStatic: true, render: { fillStyle: wallColor }, label: 'wall'
+    }),
+    // Right wall
+    Bodies.rectangle(containerWidth + wallThickness / 2, containerHeight / 2, wallThickness, containerHeight * 2, {
+      isStatic: true, render: { fillStyle: wallColor }, label: 'wall'
+    })
+  ]);
+
+  // Collision detection for merging
+  Events.on(engine, 'collisionStart', handleCollision);
+
+  // Custom rendering for emojis
+  Events.on(render, 'afterRender', drawFruitEmojis);
+
+  Render.run(render);
+  runner = Runner.create();
+  Runner.run(runner, engine);
+
+  // Build fruit guide
+  buildFruitGuide();
+}
+
+function buildFruitGuide() {
+  var el = document.getElementById('fruit-guide');
+  var html = '';
+  for (var i = 0; i < FRUITS.length; i++) {
+    if (i > 0) html += '<span class="arrow">→</span>';
+    html += '<span>' + FRUITS[i].emoji + '</span>';
+  }
+  html += '<span class="arrow">→</span><span>💥</span>';
+  el.innerHTML = html;
+}
+
+// ── Drawing emojis on fruits ──────────────
+function drawFruitEmojis() {
+  var ctx = render.context;
+  var bodies = Composite.allBodies(engine.world);
+
+  for (var i = 0; i < bodies.length; i++) {
+    var body = bodies[i];
+    if (body.fruitIndex === undefined) continue;
+
+    var fruit = FRUITS[body.fruitIndex];
+    var r = fruit.radius;
+    var fontSize = Math.max(r * 2.2, 16); // 10% larger than the circle
+
+    ctx.save();
+    ctx.translate(body.position.x, body.position.y);
+    ctx.font = fontSize + 'px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(fruit.emoji, 0, 1);
+    ctx.restore();
+  }
+}
+
+// ── Drop preview fruit ────────────────────
+var previewX = 0;
+function updatePreview(x) {
+  previewX = Math.max(FRUITS[currentFruitIndex].radius + 5, Math.min(x, containerWidth - FRUITS[currentFruitIndex].radius - 5));
+}
+
+// ── Handle input ──────────────────────────
+function setupInput() {
+  var canvas = document.getElementById('game-canvas');
+
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    var rect = canvas.getBoundingClientRect();
+    updatePreview(e.touches[0].clientX - rect.left);
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    var rect = canvas.getBoundingClientRect();
+    updatePreview(e.touches[0].clientX - rect.left);
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', function(e) {
+    e.preventDefault();
+    dropFruit(previewX);
+  }, { passive: false });
+
+  canvas.addEventListener('mousemove', function(e) {
+    var rect = canvas.getBoundingClientRect();
+    updatePreview(e.clientX - rect.left);
+  });
+
+  canvas.addEventListener('click', function(e) {
+    var rect = canvas.getBoundingClientRect();
+    var x = e.clientX - rect.left;
+    updatePreview(x);
+    dropFruit(previewX);
+  });
+}
+
+// ── Drop a fruit ──────────────────────────
+function dropFruit(x) {
+  if (!canDrop || gameOver || !gameStarted) return;
+
+  var fruit = FRUITS[currentFruitIndex];
+  x = Math.max(fruit.radius + 5, Math.min(x, containerWidth - fruit.radius - 5));
+
+  var body = Bodies.circle(x, 40, fruit.radius, {
+    restitution: 0.2,
+    friction: 0.5,
+    density: 0.001 + currentFruitIndex * 0.0005,
+    render: {
+      fillStyle: 'rgba(0,0,0,0.01)',
+      strokeStyle: 'rgba(0,0,0,0)',
+      lineWidth: 0
+    },
+    label: 'fruit'
+  });
+  body.fruitIndex = currentFruitIndex;
+  body.justDropped = true;
+
+  // Clear justDropped after settling
+  setTimeout(function() { body.justDropped = false; }, 500);
+
+  Composite.add(engine.world, body);
+  playDropSound();
+
+  canDrop = false;
+  currentFruitIndex = nextFruitIndex;
+  nextFruitIndex = Math.floor(Math.random() * (getMaxDropIndex(level) + 1));
+  document.getElementById('next-fruit').textContent = FRUITS[currentFruitIndex].emoji;
+
+  // Re-enable drop after delay
+  setTimeout(function() {
+    canDrop = true;
+    scheduleGameOverCheck();
+  }, 600);
+}
+
+// ── Collision / Merge ─────────────────────
+function handleCollision(event) {
+  var pairs = event.pairs;
+
+  for (var i = 0; i < pairs.length; i++) {
+    var pair = pairs[i];
+    var bodyA = pair.bodyA;
+    var bodyB = pair.bodyB;
+
+    if (bodyA.fruitIndex === undefined || bodyB.fruitIndex === undefined) continue;
+    if (bodyA.fruitIndex !== bodyB.fruitIndex) continue;
+    if (bodyA.merging || bodyB.merging) continue;
+    if (bodyA.justDropped || bodyB.justDropped) continue;
+
+    // Same fruit type! Merge!
+    var fruitIdx = bodyA.fruitIndex;
+
+    bodyA.merging = true;
+    bodyB.merging = true;
+
+    // Position for new fruit
+    var mx = (bodyA.position.x + bodyB.position.x) / 2;
+    var my = (bodyA.position.y + bodyB.position.y) / 2;
+
+    // Remove old fruits
+    Composite.remove(engine.world, bodyA);
+    Composite.remove(engine.world, bodyB);
+
+    // Check if watermelon — EXPLODE!
+    if (fruitIdx === FRUITS.length - 1) {
+      // Watermelon merge = EXPLOSION
+      score += 200;
+      updateHUD();
+      playExplosionSound();
+
+      // Get screen position for particles
+      var canvas = document.getElementById('game-canvas');
+      var rect = canvas.getBoundingClientRect();
+      spawnExplosion(rect.left + mx, rect.top + my);
+
+      // Remove nearby fruits in blast radius
+      var blastRadius = 120;
+      var allBodies = Composite.allBodies(engine.world).slice();
+      for (var b = 0; b < allBodies.length; b++) {
+        if (allBodies[b].fruitIndex === undefined) continue;
+        var dist = Vector.magnitude(Vector.sub(allBodies[b].position, { x: mx, y: my }));
+        if (dist < blastRadius) {
+          score += FRUITS[allBodies[b].fruitIndex].points;
+          Composite.remove(engine.world, allBodies[b]);
+        }
+      }
+      updateHUD();
+      continue;
+    }
+
+    // Create next fruit
+    var newIdx = fruitIdx + 1;
+    var newFruit = FRUITS[newIdx];
+
+    var newBody = Bodies.circle(mx, my, newFruit.radius, {
+      restitution: 0.2,
+      friction: 0.5,
+      density: 0.001 + newIdx * 0.0005,
+      render: {
+        fillStyle: 'rgba(0,0,0,0.01)',
+        strokeStyle: 'rgba(0,0,0,0)',
+        lineWidth: 0
+      },
+      label: 'fruit'
+    });
+    newBody.fruitIndex = newIdx;
+    newBody.justDropped = true;
+    setTimeout(function(b) { b.justDropped = false; }.bind(null, newBody), 300);
+
+    Composite.add(engine.world, newBody);
+
+    // Score
+    score += newFruit.points;
+    updateHUD();
+    playMergeSound(newIdx);
+
+    // Check level up
+    if (score >= getLevelGoal(level)) {
+      levelUp();
+    }
+  }
+}
+
+// ── Game over check ───────────────────────
+function scheduleGameOverCheck() {
+  if (checkGameOverTimeout) clearTimeout(checkGameOverTimeout);
+  checkGameOverTimeout = setTimeout(checkGameOver, 2000);
+}
+
+function checkGameOver() {
+  if (gameOver || !gameStarted) return;
+
+  var bodies = Composite.allBodies(engine.world);
+  var dangerLine = 70;
+
+  for (var i = 0; i < bodies.length; i++) {
+    var body = bodies[i];
+    if (body.fruitIndex === undefined) continue;
+    if (body.justDropped) continue;
+
+    // Check if fruit is above danger line and settled
+    if (body.position.y - FRUITS[body.fruitIndex].radius < dangerLine) {
+      var speed = Vector.magnitude(body.velocity);
+      if (speed < 1) {
+        // Game over!
+        triggerGameOver();
+        return;
+      }
+    }
+  }
+}
+
+function triggerGameOver() {
+  gameOver = true;
+  gameStarted = false;
+  playGameOverSound();
+
+  document.getElementById('gameover-score').textContent = score;
+  document.getElementById('gameover-level').textContent = 'Reached Level ' + level;
+  document.getElementById('screen-gameover').classList.remove('hidden');
+}
+
+// ── Level up ──────────────────────────────
+function levelUp() {
+  level++;
+  playLevelUpSound();
+
+  // Pause game
+  gameStarted = false;
+  Runner.stop(runner);
+
+  document.getElementById('levelup-text').textContent = 'Level ' + level;
+  document.getElementById('levelup-score').textContent = score;
+
+  var msgs = [
+    'Fruits fall a bit faster now!',
+    'Getting bigger and better!',
+    'Can you reach the watermelon?',
+    'More fruit variety incoming!',
+    'The pressure is on!',
+    'Merge master!',
+    'Unstoppable!',
+    'Legendary merger!'
+  ];
+  document.getElementById('levelup-msg').textContent = msgs[Math.min(level - 2, msgs.length - 1)];
+  document.getElementById('screen-levelup').classList.remove('hidden');
+}
+
+function nextLevel() {
+  document.getElementById('screen-levelup').classList.add('hidden');
+
+  // Increase difficulty — stronger gravity
+  engine.gravity.y = 1.5 + level * 0.15;
+
+  updateHUD();
+  gameStarted = true;
+  canDrop = true;
+  Runner.run(runner, engine);
+}
+
+// ── HUD ───────────────────────────────────
+function updateHUD() {
+  document.getElementById('score').textContent = score;
+  document.getElementById('level').textContent = 'Level ' + level;
+  document.getElementById('goal-text').textContent = 'Goal: ' + getLevelGoal(level);
+}
+
+// ── Start / Restart ───────────────────────
+function startGame() {
+  document.getElementById('screen-start').classList.add('hidden');
+
+  score = 0;
+  level = 1;
+  gameOver = false;
+  gameStarted = true;
+  canDrop = true;
+
+  currentFruitIndex = Math.floor(Math.random() * 3);
+  nextFruitIndex = Math.floor(Math.random() * 3);
+  document.getElementById('next-fruit').textContent = FRUITS[currentFruitIndex].emoji;
+
+  updateHUD();
+  initGame();
+  setupInput();
+}
+
+function restartGame() {
+  document.getElementById('screen-gameover').classList.add('hidden');
+
+  // Clean up old engine
+  if (runner) Runner.stop(runner);
+  if (render) Render.stop(render);
+  if (engine) {
+    Composite.clear(engine.world, false);
+    Engine.clear(engine);
+  }
+
+  score = 0;
+  level = 1;
+  gameOver = false;
+  gameStarted = true;
+  canDrop = true;
+  mergeProcessing = {};
+
+  currentFruitIndex = Math.floor(Math.random() * 3);
+  nextFruitIndex = Math.floor(Math.random() * 3);
+  document.getElementById('next-fruit').textContent = FRUITS[currentFruitIndex].emoji;
+
+  updateHUD();
+  initGame();
+  setupInput();
+}
+
+// Draw drop preview line
+(function drawPreviewLoop() {
+  requestAnimationFrame(drawPreviewLoop);
+  if (!gameStarted || gameOver || !render) return;
+  var ctx = render.context;
+  if (!ctx) return;
+
+  // Draw ghost fruit at drop position
+  var fruit = FRUITS[currentFruitIndex];
+  var previewSize = Math.max(fruit.radius * 2.2, 16);
+
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.font = previewSize + 'px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(fruit.emoji, previewX, 40);
+  ctx.restore();
+
+  // Drop guide line
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(previewX, 40 + fruit.radius);
+  ctx.lineTo(previewX, containerHeight);
+  ctx.strokeStyle = '#fff';
+  ctx.stroke();
+  ctx.restore();
+})();
+</script>
+</body>
+</html>
