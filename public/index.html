@@ -438,8 +438,9 @@ function initGame() {
     })
   ]);
 
-  // Collision detection for merging
+  // Collision detection for merging — check both start and active contacts
   Events.on(engine, 'collisionStart', handleCollision);
+  Events.on(engine, 'collisionActive', handleCollision);
 
   // Custom rendering for emojis
   Events.on(render, 'afterRender', drawFruitEmojis);
@@ -637,7 +638,7 @@ function handleCollision(event) {
     });
     newBody.fruitIndex = newIdx;
     newBody.justDropped = true;
-    setTimeout(function(b) { b.justDropped = false; }.bind(null, newBody), 150);
+    setTimeout(function(b) { b.justDropped = false; }.bind(null, newBody), 100);
 
     Composite.add(engine.world, newBody);
 
