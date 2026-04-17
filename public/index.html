@@ -189,19 +189,20 @@ var Engine = Matter.Engine,
     Vector = Matter.Vector;
 
 // ── Fruit definitions ─────────────────────
-// Each fruit: emoji, radius, points, color
+// Each fruit: emoji, visual radius for drawing, points, color
+// Physics radius is smaller than visual so merges trigger when emojis visually touch
 var FRUITS = [
-  { emoji: '🍒', name: 'Cherry',      radius: 14, points: 1,   color: '#e74c3c' },
-  { emoji: '🍓', name: 'Strawberry',   radius: 18, points: 3,   color: '#ff6b81' },
-  { emoji: '🍇', name: 'Grape',        radius: 22, points: 6,   color: '#8e44ad' },
-  { emoji: '🍊', name: 'Orange',       radius: 26, points: 10,  color: '#f39c12' },
-  { emoji: '🍑', name: 'Peach',        radius: 30, points: 15,  color: '#fdcb6e' },
-  { emoji: '🍎', name: 'Apple',        radius: 34, points: 21,  color: '#e74c3c' },
-  { emoji: '🍐', name: 'Pear',         radius: 38, points: 28,  color: '#a8e06c' },
-  { emoji: '🍋', name: 'Lemon',        radius: 42, points: 36,  color: '#f9e74a' },
-  { emoji: '🍍', name: 'Pineapple',    radius: 48, points: 45,  color: '#f0b429' },
-  { emoji: '🍈', name: 'Melon',        radius: 54, points: 55,  color: '#7bed9f' },
-  { emoji: '🍉', name: 'Watermelon',   radius: 62, points: 100, color: '#2ed573' }
+  { emoji: '🍒', name: 'Cherry',      radius: 11, points: 1,   color: '#e74c3c' },
+  { emoji: '🍓', name: 'Strawberry',   radius: 14, points: 3,   color: '#ff6b81' },
+  { emoji: '🍇', name: 'Grape',        radius: 17, points: 6,   color: '#8e44ad' },
+  { emoji: '🍊', name: 'Orange',       radius: 20, points: 10,  color: '#f39c12' },
+  { emoji: '🍑', name: 'Peach',        radius: 23, points: 15,  color: '#fdcb6e' },
+  { emoji: '🍎', name: 'Apple',        radius: 26, points: 21,  color: '#e74c3c' },
+  { emoji: '🍐', name: 'Pear',         radius: 29, points: 28,  color: '#a8e06c' },
+  { emoji: '🍋', name: 'Lemon',        radius: 33, points: 36,  color: '#f9e74a' },
+  { emoji: '🍍', name: 'Pineapple',    radius: 38, points: 45,  color: '#f0b429' },
+  { emoji: '🍈', name: 'Melon',        radius: 43, points: 55,  color: '#7bed9f' },
+  { emoji: '🍉', name: 'Watermelon',   radius: 50, points: 100, color: '#2ed573' }
 ];
 
 // ── Game state ────────────────────────────
@@ -473,7 +474,7 @@ function drawFruitEmojis() {
 
     var fruit = FRUITS[body.fruitIndex];
     var r = fruit.radius;
-    var fontSize = Math.max(r * 2.2, 16); // 10% larger than the circle
+    var fontSize = Math.max(r * 2.6, 18); // visually larger than the physics circle
 
     ctx.save();
     ctx.translate(body.position.x, body.position.y);
@@ -546,8 +547,8 @@ function dropFruit(x) {
   body.fruitIndex = currentFruitIndex;
   body.justDropped = true;
 
-  // Clear justDropped after settling
-  setTimeout(function() { body.justDropped = false; }, 500);
+  // Clear justDropped after brief settling
+  setTimeout(function() { body.justDropped = false; }, 200);
 
   Composite.add(engine.world, body);
   playDropSound();
@@ -636,7 +637,7 @@ function handleCollision(event) {
     });
     newBody.fruitIndex = newIdx;
     newBody.justDropped = true;
-    setTimeout(function(b) { b.justDropped = false; }.bind(null, newBody), 300);
+    setTimeout(function(b) { b.justDropped = false; }.bind(null, newBody), 150);
 
     Composite.add(engine.world, newBody);
 
