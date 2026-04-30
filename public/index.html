@@ -292,6 +292,8 @@ var Engine = Matter.Engine,
     Vector = Matter.Vector;
 
 // ── Fruit definitions ─────────────────────
+// visualScale lets specific emojis render bigger than their physics circle
+// (some emoji glyphs have lots of internal whitespace, e.g. 🍍 leaves)
 var FRUITS = [
   { emoji: '🍒', name: 'Cherry',      radius: 11, points: 1,   color: '#e74c3c' },
   { emoji: '🍓', name: 'Strawberry',   radius: 14, points: 3,   color: '#ff6b81' },
@@ -301,8 +303,8 @@ var FRUITS = [
   { emoji: '🍎', name: 'Apple',        radius: 26, points: 21,  color: '#e74c3c' },
   { emoji: '🍐', name: 'Pear',         radius: 29, points: 28,  color: '#a8e06c' },
   { emoji: '🍋', name: 'Lemon',        radius: 33, points: 36,  color: '#f9e74a' },
-  { emoji: '🍍', name: 'Pineapple',    radius: 38, points: 45,  color: '#f0b429' },
-  { emoji: '🍈', name: 'Melon',        radius: 43, points: 55,  color: '#7bed9f' },
+  { emoji: '🍍', name: 'Pineapple',    radius: 41, points: 45,  color: '#f0b429', visualScale: 1.25 },
+  { emoji: '🍈', name: 'Melon',        radius: 45, points: 55,  color: '#7bed9f' },
   { emoji: '🍉', name: 'Watermelon',   radius: 50, points: 100, color: '#2ed573' }
 ];
 
@@ -334,9 +336,9 @@ var lastMergeTime = 0;
 var combo = 0;
 var bestScore = 0;
 
-// Level thresholds
+// Level thresholds — higher base + steeper curve so leveling takes longer
 function getLevelGoal(lvl) {
-  return Math.floor(300 * Math.pow(1.6, lvl - 1));
+  return Math.floor(600 * Math.pow(1.7, lvl - 1));
 }
 
 // Max fruit index that can be dropped (increases slightly with level)
@@ -474,6 +476,116 @@ function playGameOverSound() {
       o.connect(g); g.connect(ctx.destination);
       o.start(ctx.currentTime + i * 0.2); o.stop(ctx.currentTime + i * 0.2 + 0.3);
     });
+  } catch(e) {}
+}
+
+// Soft tick for wall/floor bounces — rate-limited
+var lastBounceTime = 0;
+function playBounceSound(intensity) {
+  var ctx = getCtx(); if (!ctx) return;
+  var now = performance.now();
+  if (now - lastBounceTime < 60) return; // throttle
+  lastBounceTime = now;
+  try {
+    var vol = Math.min(0.15, 0.04 + intensity * 0.02);
+    var o = ctx.createOscillator();
+    var g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(180 + intensity * 25, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.08);
+    g.gain.setValueAtTime(vol, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.12);
+  } catch(e) {}
+}
+
+// Rising combo chime — pitch climbs with combo count
+function playComboSound(comboCount) {
+  var ctx = getCtx(); if (!ctx) return;
+  try {
+    var base = 440;
+    var freq = base * Math.pow(1.122, Math.min(comboCount, 12)); // semitone steps
+    var o = ctx.createOscillator();
+    var g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(freq, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(freq * 1.4, ctx.currentTime + 0.12);
+    g.gain.setValueAtTime(0.18, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.3);
+    // Soft sparkle layer
+    var s = ctx.createOscillator();
+    var sg = ctx.createGain();
+    s.type = 'sine';
+    s.frequency.setValueAtTime(freq * 2, ctx.currentTime + 0.05);
+    sg.gain.setValueAtTime(0.08, ctx.currentTime + 0.05);
+    sg.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    s.connect(sg); sg.connect(ctx.destination);
+    s.start(ctx.currentTime + 0.05); s.stop(ctx.currentTime + 0.25);
+  } catch(e) {}
+}
+
+// Pulsing danger warning when fruits near the top
+function playDangerWarning() {
+  var ctx = getCtx(); if (!ctx) return;
+  try {
+    var o = ctx.createOscillator();
+    var g = ctx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(660, ctx.currentTime);
+    g.gain.setValueAtTime(0.05, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.22);
+  } catch(e) {}
+}
+
+// Celebratory fanfare for new high score
+function playNewHighScoreSound() {
+  var ctx = getCtx(); if (!ctx) return;
+  try {
+    var notes = [523, 659, 784, 1047, 1319, 1568];
+    notes.forEach(function(f, i) {
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(f, ctx.currentTime + i * 0.09);
+      g.gain.setValueAtTime(0.18, ctx.currentTime + i * 0.09);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.09 + 0.4);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime + i * 0.09); o.stop(ctx.currentTime + i * 0.09 + 0.45);
+    });
+    // Sparkles on top
+    for (var k = 0; k < 6; k++) {
+      (function(t) {
+        var s = ctx.createOscillator();
+        var sg = ctx.createGain();
+        s.type = 'sine';
+        s.frequency.setValueAtTime(1500 + Math.random() * 1500, ctx.currentTime + t);
+        sg.gain.setValueAtTime(0.07, ctx.currentTime + t);
+        sg.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.2);
+        s.connect(sg); sg.connect(ctx.destination);
+        s.start(ctx.currentTime + t); s.stop(ctx.currentTime + t + 0.25);
+      })(0.3 + k * 0.08);
+    }
+  } catch(e) {}
+}
+
+// UI button click
+function playClickSound() {
+  var ctx = getCtx(); if (!ctx) return;
+  try {
+    var o = ctx.createOscillator();
+    var g = ctx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(880, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.05);
+    g.gain.setValueAtTime(0.08, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.07);
   } catch(e) {}
 }
 
@@ -623,6 +735,7 @@ function initGame() {
 
   Events.on(engine, 'collisionStart', handleCollision);
   Events.on(engine, 'collisionActive', handleCollision);
+  Events.on(engine, 'collisionStart', handleBounceSound);
   Events.on(render, 'afterRender', drawFruitEmojis);
 
   Render.run(render);
@@ -654,7 +767,8 @@ function drawFruitEmojis() {
 
     // Use the body's actual physics radius (which already includes level scaling)
     var r = body.circleRadius || FRUITS[body.fruitIndex].radius;
-    var fontSize = Math.max(r * 2.6, 18);
+    var vScale = FRUITS[body.fruitIndex].visualScale || 1;
+    var fontSize = Math.max(r * 2.6 * vScale, 18);
 
     ctx.save();
     ctx.globalAlpha = 1;
@@ -863,6 +977,21 @@ function triggerPowerUp(kind, x) {
   }
 }
 
+// ── Bounce sound on wall/floor impact ─────
+function handleBounceSound(event) {
+  var pairs = event.pairs;
+  for (var i = 0; i < pairs.length; i++) {
+    var p = pairs[i];
+    var fruit = null, wall = null;
+    if (p.bodyA.label === 'fruit' && p.bodyB.label === 'wall') { fruit = p.bodyA; wall = p.bodyB; }
+    else if (p.bodyB.label === 'fruit' && p.bodyA.label === 'wall') { fruit = p.bodyB; wall = p.bodyA; }
+    if (!fruit) continue;
+    var speed = Vector.magnitude(fruit.velocity);
+    if (speed < 2) continue; // ignore gentle contacts
+    playBounceSound(speed);
+  }
+}
+
 // ── Combo system ──────────────────────────
 function registerMerge(rawPoints) {
   var now = performance.now();
@@ -875,7 +1004,10 @@ function registerMerge(rawPoints) {
   var multiplier = 1 + combo * 0.2;
   var awarded = Math.floor(rawPoints * multiplier);
   score += awarded;
-  if (combo >= 2) showComboFlash(combo, multiplier);
+  if (combo >= 2) {
+    showComboFlash(combo, multiplier);
+    playComboSound(combo);
+  }
   return awarded;
 }
 
@@ -974,11 +1106,34 @@ function scheduleGameOverCheck() {
   checkGameOverTimeout = setTimeout(checkGameOver, 2000);
 }
 
+// Periodic danger warning check while playing
+setInterval(function() {
+  if (!gameStarted || gameOver || paused) return;
+  var bodies = Composite.allBodies(engine.world);
+  var warnLine = 110;
+  for (var i = 0; i < bodies.length; i++) {
+    var body = bodies[i];
+    if (body.fruitIndex === undefined || body.justDropped) continue;
+    var bodyR = body.circleRadius || FRUITS[body.fruitIndex].radius;
+    if (body.position.y - bodyR < warnLine && Vector.magnitude(body.velocity) < 2) {
+      var now = performance.now();
+      if (now - lastDangerWarnTime > 900) {
+        lastDangerWarnTime = now;
+        playDangerWarning();
+      }
+      return;
+    }
+  }
+}, 500);
+
+var lastDangerWarnTime = 0;
 function checkGameOver() {
   if (gameOver || !gameStarted || paused) return;
 
   var bodies = Composite.allBodies(engine.world);
   var dangerLine = 70;
+  var warnLine = 110; // a little below the danger line — early warning zone
+  var nearDanger = false;
 
   for (var i = 0; i < bodies.length; i++) {
     var body = bodies[i];
@@ -992,6 +1147,15 @@ function checkGameOver() {
         triggerGameOver();
         return;
       }
+    }
+    if (body.position.y - bodyR < warnLine) nearDanger = true;
+  }
+
+  if (nearDanger) {
+    var now = performance.now();
+    if (now - lastDangerWarnTime > 700) {
+      lastDangerWarnTime = now;
+      playDangerWarning();
     }
   }
 }
@@ -1007,7 +1171,12 @@ function triggerGameOver() {
   document.getElementById('gameover-score').textContent = score;
   document.getElementById('gameover-level').textContent = 'Reached Level ' + level;
   var nb = document.getElementById('gameover-newbest');
-  if (isNewBest && score > 0) nb.classList.remove('hidden'); else nb.classList.add('hidden');
+  if (isNewBest && score > 0) {
+    nb.classList.remove('hidden');
+    setTimeout(playNewHighScoreSound, 450);
+  } else {
+    nb.classList.add('hidden');
+  }
   renderHighScores('gameover-hs-board', hs, score);
   document.getElementById('screen-gameover').classList.remove('hidden');
 }
@@ -1242,6 +1411,14 @@ function goToStart() {
   ctx.stroke();
   ctx.restore();
 })();
+
+// ── UI click sounds ───────────────────────
+document.addEventListener('click', function(e) {
+  var t = e.target;
+  if (t && (t.classList.contains('btn') || t.classList.contains('icon-btn'))) {
+    playClickSound();
+  }
+});
 
 // ── Boot ──────────────────────────────────
 loadBestScore();
