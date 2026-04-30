@@ -201,18 +201,6 @@
     margin-top: 2px;
   }
 
-  /* ── Slow-mo tint ───────────────────── */
-  .slow-tint {
-    position: fixed; inset: 0;
-    background: rgba(100, 180, 255, 0.08);
-    pointer-events: none; z-index: 70;
-    animation: slowFade 0.3s ease-in;
-  }
-  @keyframes slowFade {
-    0% { opacity: 0; }
-    100% { opacity: 1; }
-  }
-
   /* ── Fruit guide ────────────────────── */
   .fruit-guide {
     display: flex; gap: 2px; justify-content: center; flex-wrap: wrap;
@@ -310,9 +298,8 @@ var FRUITS = [
 
 // ── Power-ups ─────────────────────────────
 var POWERUPS = {
-  BOMB:  { emoji: '💣', name: 'Bomb',      hint: 'Clears nearby fruits' },
-  STAR:  { emoji: '⭐', name: 'Magic',     hint: 'Upgrades 3 random fruits' },
-  CLOCK: { emoji: '⏰', name: 'Slow Time', hint: 'Slows gravity briefly' }
+  BOMB: { emoji: '💣', name: 'Bomb',  hint: 'Clears nearby fruits' },
+  STAR: { emoji: '⭐', name: 'Magic', hint: 'Upgrades 3 random fruits' }
 };
 var POWERUP_KEYS = Object.keys(POWERUPS);
 
@@ -322,7 +309,7 @@ var score = 0;
 var level = 1;
 var currentFruitIndex = 0;
 var nextFruitIndex = 0;
-var currentPowerUp = null; // 'BOMB' | 'STAR' | 'CLOCK' | null — overrides fruit
+var currentPowerUp = null; // 'BOMB' | 'STAR' | null — overrides fruit
 var nextPowerUp = null;
 var canDrop = true;
 var gameOver = false;
@@ -331,7 +318,6 @@ var paused = false;
 var muted = false;
 var containerWidth, containerHeight;
 var checkGameOverTimeout = null;
-var slowMoUntil = 0;
 var lastMergeTime = 0;
 var combo = 0;
 var bestScore = 0;
@@ -589,31 +575,19 @@ function playClickSound() {
   } catch(e) {}
 }
 
-function playPowerUpSound(kind) {
+function playPowerUpSound() {
   var ctx = getCtx(); if (!ctx) return;
   try {
-    if (kind === 'CLOCK') {
+    [659, 880, 1175].forEach(function(f, i) {
       var o = ctx.createOscillator();
       var g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(800, ctx.currentTime);
-      o.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.5);
-      g.gain.setValueAtTime(0.18, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(f, ctx.currentTime + i * 0.06);
+      g.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.06);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.06 + 0.2);
       o.connect(g); g.connect(ctx.destination);
-      o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.7);
-    } else {
-      [659, 880, 1175].forEach(function(f, i) {
-        var o = ctx.createOscillator();
-        var g = ctx.createGain();
-        o.type = 'triangle';
-        o.frequency.setValueAtTime(f, ctx.currentTime + i * 0.06);
-        g.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.06);
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.06 + 0.2);
-        o.connect(g); g.connect(ctx.destination);
-        o.start(ctx.currentTime + i * 0.06); o.stop(ctx.currentTime + i * 0.06 + 0.25);
-      });
-    }
+      o.start(ctx.currentTime + i * 0.06); o.stop(ctx.currentTime + i * 0.06 + 0.25);
+    });
   } catch(e) {}
 }
 
@@ -960,20 +934,6 @@ function triggerPowerUp(kind, x) {
       spawnExplosion(rect.left + pos.x, rect.top + pos.y, 0.5);
     }
     updateHUD();
-  } else if (kind === 'CLOCK') {
-    // Slow gravity for 4 seconds
-    slowMoUntil = performance.now() + 4000;
-    var prevG = engine.gravity.y;
-    engine.gravity.y = 0.3;
-    // Tint
-    var tint = document.createElement('div');
-    tint.className = 'slow-tint';
-    document.body.appendChild(tint);
-    setTimeout(function() {
-      engine.gravity.y = prevG;
-      tint.remove();
-      slowMoUntil = 0;
-    }, 4000);
   }
 }
 
@@ -1194,7 +1154,7 @@ function levelUp() {
 
   var msgs = [
     'Fruits got bigger!',
-    'Power-ups unlocked! 💣⭐⏰',
+    'Power-ups unlocked! 💣⭐',
     'Things are getting trickier...',
     'Can you reach the watermelon?',
     'More variety incoming!',
